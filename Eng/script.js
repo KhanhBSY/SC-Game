@@ -15,6 +15,8 @@ const SCALE = 0.32;
 const HEADING_OFFSET = -Cesium.Math.PI_OVER_TWO; // flip to +PI_OVER_TWO if the robot walks backwards
 const CAM_HEIGHT = 1.6;
 const CAM_DIST = 20;
+const CAM_DIST_MIN = 5; // scroll-wheel zoom limits
+const CAM_DIST_MAX = 80;
 const CAM_PITCH = Cesium.Math.toRadians(-45);
 const WALK_SPEED = 3;
 const RUN_SPEED = 8;
@@ -22,6 +24,9 @@ const LOOK_SENS = 0.15; // degrees per pixel of mouse movement
 const KEY_TURN_SPEED = 100; // degrees per second for the arrow keys
 const FOCUS_OFFSET_PX = 50; // the robot sits this far below the screen center
 const EDGE_TURN = 0.06; // cursor within this fraction of the left/right edge keeps turning (no pointer lock)
+const TOUCH_LOOK_SENS = 0.3; // degrees per pixel of finger drag
+const STICK_RUN = 0.85; // pushing the on-screen stick this far runs
+const TOUCH = matchMedia("(pointer: coarse)").matches; // phones/tablets get on-screen controls
 const RING_RADIUS = 2.5;
 const RING_TRIGGER = 3;
 const CLIPS = {
@@ -165,7 +170,8 @@ body.qq-nocursor, body.qq-nocursor * { cursor: none !important; }
 #help b { display: inline-block; min-width: 92px; color: #ffd166; }
 #quiz { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.35); z-index: 25; }
 #quiz .qq-card { width: min(680px, 92vw); padding: 26px 28px; border-radius: 18px; background: rgba(15, 20, 40, 0.94);
-  border: 3px solid #ff3b3b; box-shadow: 0 0 40px rgba(255, 0, 0, 0.35); color: #fff; animation: qqCardIn 0.35s ease-out; }
+  border: 3px solid #ff3b3b; box-shadow: 0 0 40px rgba(255, 0, 0, 0.35); color: #fff; animation: qqCardIn 0.35s ease-out;
+  max-height: 90vh; box-sizing: border-box; overflow-y: auto; touch-action: pan-y; }
 #qNum { color: #ff5c5c; font-weight: 800; letter-spacing: 3px; }
 #qText { margin: 8px 0 20px; font-size: 22px; line-height: 1.35; }
 #answers { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
@@ -197,25 +203,62 @@ body.qq-nocursor, body.qq-nocursor * { cursor: none !important; }
 #flash.correct { background: radial-gradient(circle, transparent 40%, rgba(0, 255, 90, 0.55)); animation: qqFlash 1s ease-out forwards; }
 #flash.fail { background: radial-gradient(circle, transparent 40%, rgba(255, 0, 0, 0.6)); animation: qqFlash 1s ease-out forwards; }
 @keyframes qqFlash { 0% { opacity: 1; } 100% { opacity: 0; } }
+/* Touch devices: on-screen stick, touch-specific help text, no page gestures */
+body:not(.qq-touch) .qq-mob, body.qq-touch .qq-desk { display: none !important; }
+body.qq-touch { touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+body.qq-touch #hud { left: calc(8px + env(safe-area-inset-left, 0px)); }
+body.qq-touch #help { top: auto; right: calc(8px + env(safe-area-inset-right, 0px)); bottom: calc(40px + env(safe-area-inset-bottom, 0px)); }
+#stick { position: fixed; left: calc(28px + env(safe-area-inset-left, 0px)); bottom: calc(44px + env(safe-area-inset-bottom, 0px));
+  width: 132px; height: 132px; border-radius: 50%; background: rgba(0, 0, 0, 0.3); border: 2px solid rgba(255, 255, 255, 0.5);
+  touch-action: none; z-index: 15; }
+#stickKnob { position: absolute; left: 50%; top: 50%; width: 58px; height: 58px; margin: -29px 0 0 -29px; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.8); pointer-events: none; }
+#stick.run #stickKnob { background: #ff5c5c; }
+/* Small screens (phones, either orientation) */
+@media (max-width: 700px), (max-height: 500px) {
+  .qq-overlay { gap: 10px; padding: 16px; box-sizing: border-box; }
+  .qq-overlay h1 { font-size: 30px; letter-spacing: 2px; }
+  .qq-overlay p { font-size: 14px; }
+  #playBtn, #againBtn { padding: 12px 40px !important; font-size: 22px !important; }
+  #hud { top: 8px; padding: 6px 10px; font-size: 13px; max-width: 60vw; }
+  #help { padding: 6px 10px; font-size: 11px; line-height: 1.5; }
+  #help b { min-width: 70px; }
+  #quiz .qq-card { padding: 16px; }
+  #qText { margin: 6px 0 12px; font-size: 17px; }
+  #answers { gap: 8px; }
+  #answers button { padding: 10px; font-size: 14px; }
+  #banner { font-size: 56px; letter-spacing: 3px; }
+}
+@media (max-width: 500px) { #answers { grid-template-columns: 1fr; } }
 `;
 
 const UI_HTML = `
 <div id="hud" hidden><div id="hudTitle"></div><div id="hudHint"></div><div id="hudCaption"></div></div>
 <div id="help" hidden>
-  <div><b>W / S</b>Walk forward / back</div>
-  <div><b>A / D</b>Step left / right</div>
-  <div><b>Shift</b>Run</div>
-  <div><b>Mouse</b>Turn and look around</div>
-  <div id="helpEdge" hidden><b>Screen edge</b>Keep turning</div>
-  <div><b>← → ↑ ↓</b>Turn and look with keys</div>
+  <div class="qq-desk">
+    <div><b>W / S</b>Walk forward / back</div>
+    <div><b>A / D</b>Step left / right</div>
+    <div><b>Shift</b>Run</div>
+    <div><b>Mouse</b>Turn and look around</div>
+    <div id="helpEdge" hidden><b>Screen edge</b>Keep turning</div>
+    <div><b>Scroll</b>Zoom in / out</div>
+    <div><b>← → ↑ ↓</b>Turn and look with keys</div>
+  </div>
+  <div class="qq-mob">
+    <div><b>Stick</b>Move (push fully to run)</div>
+    <div><b>Drag</b>Turn and look around</div>
+    <div><b>Pinch</b>Zoom in / out</div>
+  </div>
   <div><b>Red ring</b>Walk in to get a question</div>
-  <div><b>1 – 4</b>Answer (or click)</div>
+  <div class="qq-desk"><b>1 – 4</b>Answer (or click)</div>
+  <div class="qq-mob"><b>Tap</b>Answer</div>
   <div id="helpEsc"><b>Esc</b>Pause</div>
 </div>
 <div id="start" class="qq-overlay">
   <h1>CESIUM QUIZ QUEST</h1>
   <p>Fly around the world, find the red rings and answer 5 questions.</p>
-  <p>W A S D move &middot; Shift run &middot; Mouse or arrow keys look &middot; Esc pause</p>
+  <p class="qq-desk">W A S D move &middot; Shift run &middot; Mouse or arrow keys look &middot; Esc pause</p>
+  <p class="qq-mob">Stick to move &middot; Drag to look &middot; Pinch to zoom</p>
   <button id="playBtn" class="qq-btn" disabled>LOADING…</button>
   <p id="status">Loading…</p>
 </div>
@@ -230,14 +273,15 @@ const UI_HTML = `
     <div id="qNum"></div>
     <div id="qText"></div>
     <div id="answers"></div>
-    <p style="margin: 14px 0 0; opacity: 0.6; font-size: 13px">Click an answer or press 1–4</p>
+    <p style="margin: 14px 0 0; opacity: 0.6; font-size: 13px"><span class="qq-desk">Click an answer or press 1–4</span><span class="qq-mob">Tap an answer</span></p>
   </div>
 </div>
+<div id="stick" hidden><div id="stickKnob"></div></div>
 <div id="flash"></div>
 <div id="banner"></div>
 `;
 
-for (const id of ["qq-style", "hud", "help", "start", "pause", "end", "quiz", "flash", "banner"]) {
+for (const id of ["qq-style", "hud", "help", "start", "pause", "end", "quiz", "stick", "flash", "banner"]) {
   document.getElementById(id)?.remove();
 }
 if (!document.getElementById("cesiumContainer")) {
@@ -250,6 +294,7 @@ styleEl.id = "qq-style";
 styleEl.textContent = UI_CSS;
 document.head.appendChild(styleEl);
 document.body.insertAdjacentHTML("beforeend", UI_HTML);
+document.body.classList.toggle("qq-touch", TOUCH);
 
 const ui = (id) => document.getElementById(id);
 const hudEl = ui("hud");
@@ -270,6 +315,8 @@ const qNumEl = ui("qNum");
 const qTextEl = ui("qText");
 const bannerEl = ui("banner");
 const flashEl = ui("flash");
+const stickEl = ui("stick");
+const stickKnobEl = ui("stickKnob");
 const answerBtns = [0, 1, 2, 3].map((i) => {
   const b = document.createElement("button");
   b.addEventListener("click", () => answer(i));
@@ -310,7 +357,7 @@ const [robot, [player]] = await Promise.all([
   ...LEVELS.filter((l) => l.tilesetId).map(async (level) => {
     // Splats: keep requesting tiles while the camera flies in, load a bit coarser, and keep them cached.
     const options = level.splat
-      ? { cullRequestsWhileMoving: false, maximumScreenSpaceError: 24, cacheBytes: 1024 * 1024 * 1024 }
+      ? { cullRequestsWhileMoving: false, maximumScreenSpaceError: 24, cacheBytes: (TOUCH ? 512 : 1024) * 1024 * 1024 }
       : undefined;
     level.tileset = await Cesium.Cesium3DTileset.fromIonAssetId(level.tilesetId, options);
     scene.primitives.add(level.tileset);
@@ -328,6 +375,7 @@ viewer.creditDisplay.addStaticCredit(
 let groundHeight = player.height;
 let heading = 0;
 let pitch = CAM_PITCH;
+let zoomDist = CAM_DIST;
 
 // ── Robot model ───────────────────────────────────────────────
 let ready = false;
@@ -790,7 +838,7 @@ let state = "lobby"; // lobby | waiting | flying | landing | play | question | r
 let current = 0;
 let score = 0;
 let locked = false;
-let noLock = false; // pointer lock unavailable (e.g. sandboxed iframe): the free cursor steers the view instead
+let noLock = TOUCH; // no pointer lock (touch, or refused e.g. in a sandboxed iframe): free cursor / fingers steer instead
 let faceCamera = true;
 let resultClip = "yes";
 let flight = null;
@@ -805,6 +853,7 @@ function refreshOverlays() {
   helpEl.hidden = hudEl.hidden;
   ui("helpEdge").hidden = !noLock;
   ui("helpEsc").hidden = noLock;
+  stickEl.hidden = !(TOUCH && state === "play");
   const cursorNeeded = state === "lobby" || state === "question" || state === "end" || !pauseEl.hidden;
   document.body.classList.toggle("qq-nocursor", !cursorNeeded);
 }
@@ -836,6 +885,7 @@ function startGame() {
   startEl.hidden = true;
   endEl.hidden = true;
   lockPointer();
+  if (TOUCH) document.documentElement.requestFullscreen?.()?.catch(() => {}); // hide the mobile browser bars
   startFlight();
 }
 
@@ -920,7 +970,7 @@ function updateFlight(now) {
     CAM_PITCH,
     kOut
   );
-  const camDist = CAM_DIST + lift * 1.2;
+  const camDist = zoomDist + lift * 1.2;
   if (raw >= 1) {
     const level = LEVELS[current];
     if (flight.to === level.spawn) land();
@@ -972,7 +1022,7 @@ function updateLanding(now) {
   player.height = Cesium.Math.lerp(landing.from.height, level.spawn.height, k);
   const view = {
     camPitch: Cesium.Math.lerp(survey.camPitch, CAM_PITCH, k),
-    camDist: Cesium.Math.lerp(survey.camDist, CAM_DIST, k),
+    camDist: Cesium.Math.lerp(survey.camDist, zoomDist, k),
   };
   if (k >= 1) land();
   return view;
@@ -1012,6 +1062,7 @@ function surfaceReady(now) {
 function openQuestion() {
   setState("question");
   keys.clear();
+  releaseStick();
   document.exitPointerLock();
   const q = QUESTIONS[current];
   qNumEl.textContent = `QUESTION ${current + 1} / ${QUESTIONS.length}`;
@@ -1110,9 +1161,19 @@ document.addEventListener("pointerlockchange", () => {
   refreshOverlays();
 });
 document.addEventListener("pointerlockerror", onLockError);
+document.addEventListener(
+  "wheel",
+  (e) => {
+    e.preventDefault();
+    const dy = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY; // Firefox may report lines, not pixels
+    zoomDist = Cesium.Math.clamp(zoomDist * Math.exp(dy * 0.001), CAM_DIST_MIN, CAM_DIST_MAX);
+  },
+  { passive: false }
+);
 // pointermove, not mousemove: Cesium's canvas handler cancels pointerdown, which suppresses mousemove while dragging.
 let cursorX = null; // 0..1 across the screen, null when the cursor is outside
 document.addEventListener("pointermove", (e) => {
+  if (e.pointerType !== "mouse") return;
   cursorX = e.clientX / innerWidth;
   if (state !== "play") return;
   if (!locked && !noLock) return;
@@ -1124,6 +1185,65 @@ document.addEventListener("pointermove", (e) => {
   );
 });
 document.documentElement.addEventListener("mouseleave", () => (cursorX = null));
+
+// Touch: the on-screen stick walks (fully pushed = run); one finger on the view looks around, two pinch to zoom.
+const stick = { x: 0, y: 0 };
+function moveStick(e) {
+  const r = stickEl.getBoundingClientRect();
+  const radius = r.width / 2;
+  let x = (e.clientX - r.left - radius) / radius;
+  let y = (e.clientY - r.top - radius) / radius;
+  const m = Math.hypot(x, y);
+  if (m > 1) {
+    x /= m;
+    y /= m;
+  }
+  stick.x = x;
+  stick.y = y;
+  stickKnobEl.style.transform = `translate(${x * radius}px, ${y * radius}px)`;
+  stickEl.classList.toggle("run", m >= STICK_RUN);
+}
+function releaseStick() {
+  stick.x = 0;
+  stick.y = 0;
+  stickKnobEl.style.transform = "";
+  stickEl.classList.remove("run");
+}
+stickEl.addEventListener("pointerdown", (e) => {
+  stickEl.setPointerCapture(e.pointerId);
+  moveStick(e);
+});
+stickEl.addEventListener("pointermove", (e) => stickEl.hasPointerCapture(e.pointerId) && moveStick(e));
+stickEl.addEventListener("lostpointercapture", releaseStick);
+
+const touches = new Map(); // fingers dragging on the 3D view
+canvas.addEventListener("pointerdown", (e) => {
+  if (e.pointerType !== "mouse") touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+});
+document.addEventListener("pointermove", (e) => {
+  const t = touches.get(e.pointerId);
+  if (!t) return;
+  const [a, b] = touches.values();
+  const spread = b && Math.hypot(a.x - b.x, a.y - b.y);
+  const dx = e.clientX - t.x;
+  const dy = e.clientY - t.y;
+  t.x = e.clientX;
+  t.y = e.clientY;
+  if (b) {
+    const now = Math.hypot(a.x - b.x, a.y - b.y);
+    if (spread > 0 && now > 0) zoomDist = Cesium.Math.clamp((zoomDist * spread) / now, CAM_DIST_MIN, CAM_DIST_MAX);
+  } else if (state === "play") {
+    heading += Cesium.Math.toRadians(dx * TOUCH_LOOK_SENS);
+    pitch = Cesium.Math.clamp(
+      pitch - Cesium.Math.toRadians(dy * TOUCH_LOOK_SENS),
+      Cesium.Math.toRadians(-80),
+      Cesium.Math.toRadians(20)
+    );
+  }
+});
+const dropTouch = (e) => touches.delete(e.pointerId);
+document.addEventListener("pointerup", dropTouch);
+document.addEventListener("pointercancel", dropTouch);
 
 playBtn.addEventListener("click", startGame);
 againBtn.addEventListener("click", startGame);
@@ -1148,7 +1268,7 @@ scene.preRender.addEventListener(() => {
   let moving = false;
   let running = false;
   let camPitch = pitch;
-  let camDist = CAM_DIST;
+  let camDist = zoomDist;
   let ringDist = 0;
 
   if (state === "flying") {
@@ -1168,10 +1288,10 @@ scene.preRender.addEventListener(() => {
     );
     camPitch = pitch;
 
-    running = keys.has("ShiftLeft") || keys.has("ShiftRight");
-    const fwd = (keys.has("KeyW") ? 1 : 0) - (keys.has("KeyS") ? 1 : 0);
-    const strafe = (keys.has("KeyD") ? 1 : 0) - (keys.has("KeyA") ? 1 : 0);
-    moving = fwd !== 0 || strafe !== 0;
+    running = keys.has("ShiftLeft") || keys.has("ShiftRight") || Math.hypot(stick.x, stick.y) >= STICK_RUN;
+    const fwd = (keys.has("KeyW") ? 1 : 0) - (keys.has("KeyS") ? 1 : 0) - stick.y;
+    const strafe = (keys.has("KeyD") ? 1 : 0) - (keys.has("KeyA") ? 1 : 0) + stick.x;
+    moving = Math.hypot(fwd, strafe) > 0.2;
 
     // Move in the local East-North-Up frame (heading 0 = north).
     if (moving) {
