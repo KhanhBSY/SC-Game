@@ -71,6 +71,51 @@ const QUESTIONS = [
     answers: ["glTF", "3D Tiles", "CityGML", "IFC"],
     correct: 1,
   },
+  {
+    text: "Who founded Cesium?",
+    answers: ["Jack Dangermond", "Patrick Cozzi", "John Carmack", "Keith Bentley"],
+    correct: 1,
+  },
+  {
+    text: "Where is Cesium headquartered?",
+    answers: ["Philadelphia", "San Francisco", "Seattle", "Boston"],
+    correct: 0,
+  },
+  {
+    text: "Which 3D platforms have official Cesium plugins?",
+    answers: ["Unity", "Unreal Engine", "NVIDIA Omniverse", "All of the above"],
+    correct: 3,
+  },
+  {
+    text: "In the latest version of 3D Tiles, tile content is mainly stored as:",
+    answers: ["OBJ", "FBX", "glTF", "STL"],
+    correct: 2,
+  },
+  {
+    text: "In which year did Cesium start?",
+    answers: ["2005", "2011", "2015", "2019"],
+    correct: 1,
+  },
+  {
+    text: "In which year did Bentley acquire Cesium?",
+    answers: ["2021", "2022", "2023", "2024"],
+    correct: 3,
+  },
+  {
+    text: "How much does it cost to become a Cesium Certified Developer?",
+    answers: ["$99", "$299", "$499", "Free"],
+    correct: 3,
+  },
+  {
+    text: "Which BIM/CAD formats can you upload to Cesium ion?",
+    answers: ["Revit (.rvt)", "IFC (.ifc)", "AutoCAD (.dwg)", "All of the above"],
+    correct: 3,
+  },
+  {
+    text: "Which Japanese projects use Cesium?",
+    answers: ["Tokyo Digital Twin 3D Viewer", "PLATEAU VIEW", "Hiroshima Archive", "All of the above"],
+    correct: 3,
+  },
 ];
 
 // center/searchRadius override where the landing zone is searched; otherwise the tileset bounds are used.
@@ -837,6 +882,7 @@ async function createRing(level, index) {
 let state = "lobby"; // lobby | waiting | flying | landing | play | question | result | end
 let current = 0;
 let score = 0;
+let quiz = []; // this round's questions, drawn at random from QUESTIONS
 let locked = false;
 let noLock = TOUCH; // no pointer lock (touch, or refused e.g. in a sandboxed iframe): free cursor / fingers steer instead
 let faceCamera = true;
@@ -882,6 +928,12 @@ function onLockError() {
 function startGame() {
   score = 0;
   current = 0;
+  quiz = [...QUESTIONS];
+  for (let i = quiz.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [quiz[i], quiz[j]] = [quiz[j], quiz[i]];
+  }
+  quiz.length = LEVELS.length;
   startEl.hidden = true;
   endEl.hidden = true;
   lockPointer();
@@ -1064,8 +1116,8 @@ function openQuestion() {
   keys.clear();
   releaseStick();
   document.exitPointerLock();
-  const q = QUESTIONS[current];
-  qNumEl.textContent = `QUESTION ${current + 1} / ${QUESTIONS.length}`;
+  const q = quiz[current];
+  qNumEl.textContent = `QUESTION ${current + 1} / ${quiz.length}`;
   qTextEl.textContent = q.text;
   answerBtns.forEach((b, i) => {
     b.textContent = `${i + 1}. ${q.answers[i]}`;
@@ -1078,7 +1130,7 @@ function openQuestion() {
 function answer(i) {
   if (state !== "question") return;
   lockPointer(); // must happen inside the click/key gesture
-  const q = QUESTIONS[current];
+  const q = quiz[current];
   const ok = i === q.correct;
   if (ok) score++;
   answerBtns.forEach((b, j) => {
@@ -1115,8 +1167,8 @@ function endGame() {
   setState("end");
   document.exitPointerLock();
   faceCamera = true;
-  endTitleEl.textContent = score === QUESTIONS.length ? "PERFECT!" : score >= 3 ? "WELL DONE!" : "NICE TRY!";
-  endScoreEl.textContent = `You scored ${score} / ${QUESTIONS.length}`;
+  endTitleEl.textContent = score === quiz.length ? "PERFECT!" : score >= 3 ? "WELL DONE!" : "NICE TRY!";
+  endScoreEl.textContent = `You scored ${score} / ${quiz.length}`;
   endEl.hidden = false;
 }
 

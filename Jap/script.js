@@ -71,6 +71,51 @@ const QUESTIONS = [
     answers: ["glTF", "3D Tiles", "CityGML", "IFC"],
     correct: 1,
   },
+  {
+    text: "Cesium の創業者は？",
+    answers: ["ジャック・デンジャモンド", "パトリック・コッツィ", "ジョン・カーマック", "キース・ベントレー"],
+    correct: 1,
+  },
+  {
+    text: "Cesium の本社はどこにある？",
+    answers: ["フィラデルフィア", "サンフランシスコ", "シアトル", "ボストン"],
+    correct: 0,
+  },
+  {
+    text: "Cesium の公式プラグインがある 3D プラットフォームは？",
+    answers: ["Unity", "Unreal Engine", "NVIDIA Omniverse", "上記すべて"],
+    correct: 3,
+  },
+  {
+    text: "最新版の 3D Tiles では、タイルのコンテンツは主にどの形式で保存される？",
+    answers: ["OBJ", "FBX", "glTF", "STL"],
+    correct: 2,
+  },
+  {
+    text: "Cesium が始まったのは何年？",
+    answers: ["2005 年", "2011 年", "2015 年", "2019 年"],
+    correct: 1,
+  },
+  {
+    text: "Bentley が Cesium を買収したのは何年？",
+    answers: ["2021 年", "2022 年", "2023 年", "2024 年"],
+    correct: 3,
+  },
+  {
+    text: "Cesium 認定開発者（Cesium Certified Developer）になるための費用は？",
+    answers: ["99 ドル", "299 ドル", "499 ドル", "無料"],
+    correct: 3,
+  },
+  {
+    text: "Cesium ion にアップロードできる BIM/CAD 形式は？",
+    answers: ["Revit (.rvt)", "IFC (.ifc)", "AutoCAD (.dwg)", "上記すべて"],
+    correct: 3,
+  },
+  {
+    text: "Cesium を使っている日本のプロジェクトは？",
+    answers: ["東京都デジタルツイン3Dビューア", "PLATEAU VIEW", "ヒロシマ・アーカイブ", "上記すべて"],
+    correct: 3,
+  },
 ];
 
 // center/searchRadius override where the landing zone is searched; otherwise the tileset bounds are used.
@@ -837,6 +882,7 @@ async function createRing(level, index) {
 let state = "lobby"; // lobby | waiting | flying | landing | play | question | result | end
 let current = 0;
 let score = 0;
+let quiz = []; // this round's questions, drawn at random from QUESTIONS
 let locked = false;
 let noLock = TOUCH; // no pointer lock (touch, or refused e.g. in a sandboxed iframe): free cursor / fingers steer instead
 let faceCamera = true;
@@ -882,6 +928,12 @@ function onLockError() {
 function startGame() {
   score = 0;
   current = 0;
+  quiz = [...QUESTIONS];
+  for (let i = quiz.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [quiz[i], quiz[j]] = [quiz[j], quiz[i]];
+  }
+  quiz.length = LEVELS.length;
   startEl.hidden = true;
   endEl.hidden = true;
   lockPointer();
@@ -1064,8 +1116,8 @@ function openQuestion() {
   keys.clear();
   releaseStick();
   document.exitPointerLock();
-  const q = QUESTIONS[current];
-  qNumEl.textContent = `第 ${current + 1} 問 / 全 ${QUESTIONS.length} 問`;
+  const q = quiz[current];
+  qNumEl.textContent = `第 ${current + 1} 問 / 全 ${quiz.length} 問`;
   qTextEl.textContent = q.text;
   answerBtns.forEach((b, i) => {
     b.textContent = `${i + 1}. ${q.answers[i]}`;
@@ -1078,7 +1130,7 @@ function openQuestion() {
 function answer(i) {
   if (state !== "question") return;
   lockPointer(); // must happen inside the click/key gesture
-  const q = QUESTIONS[current];
+  const q = quiz[current];
   const ok = i === q.correct;
   if (ok) score++;
   answerBtns.forEach((b, j) => {
@@ -1115,8 +1167,8 @@ function endGame() {
   setState("end");
   document.exitPointerLock();
   faceCamera = true;
-  endTitleEl.textContent = score === QUESTIONS.length ? "パーフェクト！" : score >= 3 ? "よくできました！" : "おしい！";
-  endScoreEl.textContent = `スコア: ${score} / ${QUESTIONS.length}`;
+  endTitleEl.textContent = score === quiz.length ? "パーフェクト！" : score >= 3 ? "よくできました！" : "おしい！";
+  endScoreEl.textContent = `スコア: ${score} / ${quiz.length}`;
   endEl.hidden = false;
 }
 
