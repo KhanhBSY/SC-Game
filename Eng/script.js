@@ -1,4 +1,4 @@
-// Cesium Quiz Quest: W/A/S/D move, Shift run, mouse or arrow keys look, Esc pause.
+// Cesium Quiz Quest: W/A/S/D run, mouse or arrow keys look, Esc pause.
 window.addEventListener("unhandledrejection", (e) => {
   const status = document.getElementById("status");
   if (status && !document.getElementById("start").hidden) {
@@ -18,14 +18,12 @@ const CAM_DIST = 20;
 const CAM_DIST_MIN = 5; // scroll-wheel zoom limits
 const CAM_DIST_MAX = 80;
 const CAM_PITCH = Cesium.Math.toRadians(-45);
-const WALK_SPEED = 3;
 const RUN_SPEED = 8;
 const LOOK_SENS = 0.15; // degrees per pixel of mouse movement
 const KEY_TURN_SPEED = 100; // degrees per second for the arrow keys
 const FOCUS_OFFSET_PX = 50; // the robot sits this far below the screen center
 const EDGE_TURN = 0.06; // cursor within this fraction of the left/right edge keeps turning (no pointer lock)
 const TOUCH_LOOK_SENS = 0.3; // degrees per pixel of finger drag
-const STICK_RUN = 0.85; // pushing the on-screen stick this far runs
 const TOUCH = matchMedia("(pointer: coarse)").matches; // phones/tablets get on-screen controls
 const RING_RADIUS = 2.5;
 const RING_TRIGGER = 3;
@@ -258,7 +256,6 @@ body.qq-touch #help { top: auto; right: calc(8px + env(safe-area-inset-right, 0p
   touch-action: none; z-index: 15; }
 #stickKnob { position: absolute; left: 50%; top: 50%; width: 58px; height: 58px; margin: -29px 0 0 -29px; border-radius: 50%;
   background: rgba(255, 255, 255, 0.8); pointer-events: none; }
-#stick.run #stickKnob { background: #ff5c5c; }
 /* Small screens (phones, either orientation) */
 @media (max-width: 700px), (max-height: 500px) {
   .qq-overlay { gap: 10px; padding: 16px; box-sizing: border-box; }
@@ -281,16 +278,15 @@ const UI_HTML = `
 <div id="hud" hidden><div id="hudTitle"></div><div id="hudHint"></div><div id="hudCaption"></div></div>
 <div id="help" hidden>
   <div class="qq-desk">
-    <div><b>W / S</b>Walk forward / back</div>
+    <div><b>W / S</b>Run forward / back</div>
     <div><b>A / D</b>Step left / right</div>
-    <div><b>Shift</b>Run</div>
     <div><b>Mouse</b>Turn and look around</div>
     <div id="helpEdge" hidden><b>Screen edge</b>Keep turning</div>
     <div><b>Scroll</b>Zoom in / out</div>
     <div><b>← → ↑ ↓</b>Turn and look with keys</div>
   </div>
   <div class="qq-mob">
-    <div><b>Stick</b>Move (push fully to run)</div>
+    <div><b>Stick</b>Move</div>
     <div><b>Drag</b>Turn and look around</div>
     <div><b>Pinch</b>Zoom in / out</div>
   </div>
@@ -302,7 +298,7 @@ const UI_HTML = `
 <div id="start" class="qq-overlay">
   <h1>CESIUM QUIZ QUEST</h1>
   <p>Fly around the world, find the red rings and answer 5 questions.</p>
-  <p class="qq-desk">W A S D move &middot; Shift run &middot; Mouse or arrow keys look &middot; Esc pause</p>
+  <p class="qq-desk">W A S D move &middot; Mouse or arrow keys look &middot; Esc pause</p>
   <p class="qq-mob">Stick to move &middot; Drag to look &middot; Pinch to zoom</p>
   <button id="playBtn" class="qq-btn" disabled>LOADING…</button>
   <p id="status">Loading…</p>
@@ -1238,7 +1234,7 @@ document.addEventListener("pointermove", (e) => {
 });
 document.documentElement.addEventListener("mouseleave", () => (cursorX = null));
 
-// Touch: the on-screen stick walks (fully pushed = run); one finger on the view looks around, two pinch to zoom.
+// Touch: the on-screen stick moves; one finger on the view looks around, two pinch to zoom.
 const stick = { x: 0, y: 0 };
 function moveStick(e) {
   const r = stickEl.getBoundingClientRect();
@@ -1253,13 +1249,11 @@ function moveStick(e) {
   stick.x = x;
   stick.y = y;
   stickKnobEl.style.transform = `translate(${x * radius}px, ${y * radius}px)`;
-  stickEl.classList.toggle("run", m >= STICK_RUN);
 }
 function releaseStick() {
   stick.x = 0;
   stick.y = 0;
   stickKnobEl.style.transform = "";
-  stickEl.classList.remove("run");
 }
 stickEl.addEventListener("pointerdown", (e) => {
   stickEl.setPointerCapture(e.pointerId);
@@ -1318,7 +1312,6 @@ scene.preRender.addEventListener(() => {
   lastTime = now;
 
   let moving = false;
-  let running = false;
   let camPitch = pitch;
   let camDist = zoomDist;
   let ringDist = 0;
@@ -1340,7 +1333,6 @@ scene.preRender.addEventListener(() => {
     );
     camPitch = pitch;
 
-    running = keys.has("ShiftLeft") || keys.has("ShiftRight") || Math.hypot(stick.x, stick.y) >= STICK_RUN;
     const fwd = (keys.has("KeyW") ? 1 : 0) - (keys.has("KeyS") ? 1 : 0) - stick.y;
     const strafe = (keys.has("KeyD") ? 1 : 0) - (keys.has("KeyA") ? 1 : 0) + stick.x;
     moving = Math.hypot(fwd, strafe) > 0.2;
@@ -1349,7 +1341,7 @@ scene.preRender.addEventListener(() => {
     if (moving) {
       const east = fwd * Math.sin(heading) + strafe * Math.cos(heading);
       const north = fwd * Math.cos(heading) - strafe * Math.sin(heading);
-      const step = ((running ? RUN_SPEED : WALK_SPEED) * dt) / Math.hypot(east, north);
+      const step = (RUN_SPEED * dt) / Math.hypot(east, north);
       const feet = Cesium.Cartographic.toCartesian(player, undefined, scratchFeet);
       const enu = Cesium.Transforms.eastNorthUpToFixedFrame(feet, undefined, scratchEnu);
       Cesium.Cartesian3.fromElements(east * step, north * step, 0, scratchLocal);
@@ -1397,7 +1389,7 @@ scene.preRender.addEventListener(() => {
     robot.modelMatrix
   );
   if (state === "flying" || state === "landing") setClip("fly");
-  else if (state === "play") setClip(!moving ? "idle" : running ? "run" : "walk");
+  else if (state === "play") setClip(moving ? "run" : "idle");
   else if (state === "result") setClip(resultClip);
   else if (state === "end") setClip("dance");
   else if (state === "lobby") setClip("wave");
